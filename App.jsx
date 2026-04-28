@@ -8,7 +8,8 @@ import {
   Settings2,
   Calendar,
   Flame,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 // Firebase 라이브러리 임포트
@@ -24,8 +25,7 @@ import {
   deleteDoc 
 } from 'firebase/firestore';
 
-// --- [매우 중요] 본인의 Firebase 설정값으로 교체하세요 ---
-// Firebase Console에서 프로젝트 생성 후 발급받은 값을 여기에 넣어야 데이터가 저장됩니다.
+// --- [입력해주신 설정값 적용] ---
 const firebaseConfig = {
   apiKey: "AIzaSyAs5UkQxfGw-d0cKqRXmOEbN05fu44u1kg",
   authDomain: "good-habit-4m.firebaseapp.com",
@@ -44,6 +44,7 @@ const customAppId = 'good-habit-4m-v1';
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('today');
   const [habits, setHabits] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -56,14 +57,16 @@ const App = () => {
   // 익명 로그인 설정
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        try {
+      try {
+        if (!currentUser) {
           await signInAnonymously(auth);
-        } catch (err) {
-          console.error("로그인 실패:", err);
+        } else {
+          setUser(currentUser);
+          setLoading(false);
         }
-      } else {
-        setUser(currentUser);
+      } catch (err) {
+        console.error("로그인 실패:", err);
+        setError("Firebase 인증에 실패했습니다. 익명 로그인이 활성화되어 있는지 확인해주세요.");
         setLoading(false);
       }
     });
@@ -78,6 +81,9 @@ const App = () => {
     const habitsRef = collection(db, 'artifacts', customAppId, 'users', user.uid, 'habits');
     const unsubHabits = onSnapshot(habitsRef, (snap) => {
       setHabits(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error(err);
+      setError("데이터 읽기 권한이 없습니다. Firestore 규칙을 확인해주세요.");
     });
 
     // 오늘 할 일 목록 가져오기
@@ -101,13 +107,17 @@ const App = () => {
   const addItem = async () => {
     if (!newItemName.trim() || !user) return;
     const colName = newItemType === 'habit' ? 'habits' : 'tasks';
-    await addDoc(collection(db, 'artifacts', customAppId, 'users', user.uid, colName), {
-      title: newItemName,
-      type: newItemType,
-      createdAt: new Date().toISOString(),
-      date: newItemType === 'task' ? todayStr : null
-    });
-    setNewItemName('');
+    try {
+      await addDoc(collection(db, 'artifacts', customAppId, 'users', user.uid, colName), {
+        title: newItemName,
+        type: newItemType,
+        createdAt: new Date().toISOString(),
+        date: newItemType === 'task' ? todayStr : null
+      });
+      setNewItemName('');
+    } catch (err) {
+      setError("항목 추가 중 오류 발생: " + err.message);
+    }
   };
 
   // 항목 삭제
@@ -135,7 +145,26 @@ const App = () => {
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <Loader2 className="animate-spin text-indigo-600 w-8 h-8" />
+      <div className="text-center">
+        <Loader2 className="animate-spin text-indigo-600 w-10 h-10 mx-auto mb-4" />
+        <p className="text-slate-500 font-medium">연결 중...</p>
+      </div>
+    </div>
+  );
+
+  if (error) return (
+    <div className="min-h-screen flex items-center justify-center bg-red-50 p-6">
+      <div className="bg-white p-6 rounded-2xl shadow-xl max-w-sm text-center">
+        <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <h2 className="text-lg font-bold text-slate-800 mb-2">문제가 발생했습니다</h2>
+        <p className="text-sm text-slate-600 mb-6">{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="w-full bg-red-500 text-white py-3 rounded-xl font-bold"
+        >
+          다시 시도
+        </button>
+      </div>
     </div>
   );
 
